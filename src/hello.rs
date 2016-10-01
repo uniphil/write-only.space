@@ -6,7 +6,7 @@ use iron::{Iron, Request, Response, IronResult};
 use iron::status;
 
 fn hello(_: &mut Request) -> IronResult<Response> {
-    let resp = Response::with((status::Ok, "helloyo"));
+    let resp = Response::with((status::Ok, "hello yo"));
     Ok(resp)
 }
 
