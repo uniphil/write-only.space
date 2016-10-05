@@ -8,6 +8,7 @@ extern crate postgres;
 extern crate r2d2;
 extern crate r2d2_postgres;
 extern crate router;
+extern crate url;
 
 use iron::{Iron, Chain, Request, Response, IronResult, Plugin, status};
 use iron::mime::Mime;
@@ -17,6 +18,7 @@ use params::{FromValue};
 use persistent::Read as PRead;
 use r2d2_postgres::{SslMode, PostgresConnectionManager};
 use router::Router;
+use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, utf8_percent_encode, percent_decode};
 
 mod db;
 mod migrate;
@@ -34,48 +36,134 @@ fn base(content: &str) -> String {
                 <title>write-only.space</title>
             </head>
             <body>
+                <h1>
+                    <a href=\"/\" title=\"All authors\">write-only.space</a>
+                </h1>
                 {}
             </body>
         </html>
         ", content)
 }
 
+
 fn index(req: &mut Request) -> IronResult<Response> {
-    let pool = req.get::<persistent::Read<PostgresDB>>().unwrap();
-    let conn = pool.get().unwrap();
-    let posts = conn
-        .query("SELECT id, timestamp, sender, thread, body FROM post", &[])
+    let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
+    let authors = conn
+        .query("SELECT DISTINCT sender FROM post", &[])
         .unwrap()
         .iter()
         .map(|row| {
-            let timestamp: chrono::NaiveDateTime = row.get("timestamp");
             let sender: String = row.get("sender");
-            let thread: String = row.get("thread");
-            let body: String = row.get("body");
             format!("
                 <li>
-                    <h3>{}/{} <small>{}</small></h3>
-                    <p>{}</p>
+                    <a href=\"/{}\" title=\"Notes from {}\">{}</a>
                 </li>
-                ", sender, thread, timestamp, body)
+                ", utf8_percent_encode(&sender, PATH_SEGMENT_ENCODE_SET), sender, sender)
         })
         .collect::<Vec<String>>()
         .join("");
     let markup = base(&format!("
-        <h1>write-only.space</h1>
-        <h2>latest posts</h2>
+        <h2>authors</h2>
         <ul>
             {}
         </ul>
-        ", posts));
-    let resp = Response::with(
+        ", authors));
+    Ok(Response::with(
     ( "text/html".parse::<Mime>().unwrap()
     , status::Ok
     , markup
-    ));
-    Ok(resp)
+    )))
 }
 
+
+fn threads(req: &mut Request) -> IronResult<Response> {
+    let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
+    let ref author_email_enc = req.extensions.get::<Router>()
+        .unwrap().find("author_email").unwrap();
+    let ref author_email = percent_decode(author_email_enc.as_bytes())
+        .decode_utf8_lossy()
+        .into_owned();
+    let threads = conn
+        .query("SELECT DISTINCT thread FROM post WHERE sender = $1", &[author_email])
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let topic: String = row.get("thread");
+            format!("
+                <li>
+                    <a href=\"/{}/{}\" title=\"Notes in {}\">{}</a>
+                </li>
+                ", utf8_percent_encode(author_email, PATH_SEGMENT_ENCODE_SET), utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET), topic, topic)
+        })
+        .collect::<Vec<String>>();
+    if threads.len() > 0 {
+        let markup = base(&format!("
+            <h2>Notes by {}</h2>
+            <ul>
+                {}
+            </ul>
+            ", author_email, threads.join("")));
+        Ok(Response::with(
+        ( "text/html".parse::<Mime>().unwrap()
+        , status::Ok
+        , markup
+        )))
+    } else {
+        let markup = base(&format!("
+            <h2>No notes by {}</h2>
+            <p>Create notes by emailing <a href=\"mailto:note@write-only.space\">note@write-only.space</a> if {} is your email address.</p>
+            <p>Notes are grouped into threads by the email subject.</p>
+            ", author_email, author_email));
+        Ok(Response::with(
+        ( "text/html".parse::<Mime>().unwrap()
+        , status::NotFound
+        , markup
+        )))
+    }
+}
+
+fn notes(req: &mut Request) -> IronResult<Response> {
+    let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
+    let params = req.extensions.get::<Router>().unwrap();
+    let ref author_email = percent_decode(params.find("author_email").unwrap().as_bytes())
+        .decode_utf8_lossy()
+        .into_owned();
+    let ref topic = percent_decode(params.find("topic").unwrap().as_bytes())
+        .decode_utf8_lossy()
+        .into_owned();
+
+    let notes = conn
+        .query("SELECT body, timestamp FROM post WHERE sender = $1 AND thread = $2", &[author_email, topic])
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let body: String = row.get("body");
+            let timestamp: chrono::NaiveDateTime = row.get("timestamp");
+            format!("
+                <li>
+                    <p><strong>{}</strong></p>
+                    {}
+                </li>
+                ", &timestamp.format("%Y %B %e"), body)
+        })
+        .collect::<Vec<String>>()
+        .join("");
+    let markup = base(&format!("
+        <h2>
+            <a href=\"/{}\" title=\"Notes by {}\">{}</a>
+            &ndash;
+            {}
+        </h2>
+        <ul>
+            {}
+        </ul>
+        ", utf8_percent_encode(author_email, PATH_SEGMENT_ENCODE_SET), author_email, author_email, topic, notes));
+    Ok(Response::with(
+    ( "text/html".parse::<Mime>().unwrap()
+    , status::Ok
+    , markup
+    )))
+}
 
 
 // recipient   string  recipient of the message as reported by MAIL TO during SMTP chat.
@@ -116,38 +204,6 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
     Ok(resp)
 }
 
-// fn signup_form(req: &mut Request) -> IronResult<Response> {
-//     let markup = base(&format!("
-//         <form action=\"/signup\" method=\"POST\">
-//             <div>
-//                 <label for=\"email\">email address</lable>
-//                 <input type=\"email\" id=\"email\" name=\"email\" placeholder=\"username@example.com\" />
-//             </div>
-//             <div>
-//                 <button type=\"submit\">Sign up</button>
-//             </div>
-//         </form>
-//         "));
-//     let resp = Response::with(
-//     ( "text/html".parse::<Mime>().unwrap()
-//     , status::Ok
-//     , markup
-//     ));
-//     Ok(resp)
-// }
-
-// fn handle_signup(req: &mut Request) -> IronResult<Response> {
-//     let data = req.get_ref::<UrlEncodedBody>().unwrap();
-//     println!("data {:?}", data);
-//     let markup = base(&format!("
-//         <p>wooo</p>"));
-//     let resp = Response::with(
-//     ( "text/html".parse::<Mime>().unwrap()
-//     , status::Ok
-//     , markup
-//     ));
-//     Ok(resp)
-// }
 
 fn env(name: &str, def: &str) -> String {
     std::env::var(name).unwrap_or(def.to_string())
@@ -173,6 +229,9 @@ fn main() {
 
     let mut router = Router::new();
     router.get("/", index, "index");
+    router.get("/:author_email", threads, "threads");
+    router.get("/:author_email/:topic", notes, "notes");
+
     router.post("/email", receive_email, "email");
 
     let mut chain = Chain::new(router);
