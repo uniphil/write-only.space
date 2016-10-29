@@ -7,7 +7,8 @@ extern crate persistent;
 extern crate postgres;
 extern crate r2d2;
 extern crate r2d2_postgres;
-extern crate router;
+#[macro_use]
+extern crate route;
 extern crate url;
 
 use iron::{Iron, Chain, Request, Response, IronResult, Plugin, status};
@@ -17,7 +18,6 @@ use logger::Logger;
 use params::{FromValue};
 use persistent::Read as PRead;
 use r2d2_postgres::{SslMode, PostgresConnectionManager};
-use router::Router;
 use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, utf8_percent_encode, percent_decode};
 
 mod db;
@@ -26,7 +26,19 @@ mod migrate;
 type PostgresPool = r2d2::Pool<PostgresConnectionManager>;
 
 struct PostgresDB;
-impl Key for PostgresDB { type Value = PostgresPool; }
+impl Key for PostgresDB {
+    type Value = PostgresPool;
+}
+
+
+#[derive(Debug, PartialEq, Eq)]
+enum Page<'a> {
+    Home,
+    Author(&'a str),
+    Topic(&'a str, &'a str),
+    ReceiveEmail,
+    NotFound,
+}
 
 
 fn base(content: &str) -> String {
@@ -76,11 +88,9 @@ fn index(req: &mut Request) -> IronResult<Response> {
 }
 
 
-fn threads(req: &mut Request) -> IronResult<Response> {
+fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
-    let ref author_email_enc = req.extensions.get::<Router>()
-        .unwrap().find("author_email").unwrap();
-    let ref author_email = percent_decode(author_email_enc.as_bytes())
+    let ref author_email = percent_decode(email.as_bytes())
         .decode_utf8_lossy()
         .into_owned();
     let threads = conn
@@ -122,13 +132,12 @@ fn threads(req: &mut Request) -> IronResult<Response> {
     }
 }
 
-fn notes(req: &mut Request) -> IronResult<Response> {
+fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
-    let params = req.extensions.get::<Router>().unwrap();
-    let ref author_email = percent_decode(params.find("author_email").unwrap().as_bytes())
+    let ref author_email = percent_decode(email.as_bytes())
         .decode_utf8_lossy()
         .into_owned();
-    let ref topic = percent_decode(params.find("topic").unwrap().as_bytes())
+    let ref topic = percent_decode(topic.as_bytes())
         .decode_utf8_lossy()
         .into_owned();
 
@@ -218,6 +227,27 @@ fn get_pool(uri: &str) -> Result<PostgresPool, String> {
 }
 
 
+route_fn!(route -> Page {
+    (/) => Page::Home,
+    (/"email") => Page::ReceiveEmail,
+    (/[email]) => Page::Author(email),
+    (/[email]/[topic]) => Page::Topic(email, topic),
+}, Page::NotFound);
+
+
+fn router(req: &mut Request) -> IronResult<Response> {
+    let path = format!("/{}", req.url.path().join("/"));
+    match route(&path) {
+        Page::Home => index(req),
+        Page::Author(email) => threads(req, email),
+        Page::Topic(email, subject) => notes(req, email, subject),
+        Page::ReceiveEmail => receive_email(req),
+        Page::NotFound =>
+            Ok(Response::with((status::NotFound))),
+    }
+}
+
+
 fn main() {
     let port = env("PORT", "").parse::<u16>().unwrap_or(8080);
     let dburl = env("DATABASE_URL", "postgresql://postgres@localhost");
@@ -226,13 +256,6 @@ fn main() {
 
     let pool = get_pool(&dburl).unwrap();
     migrate::run(pool.get().unwrap()).unwrap();
-
-    let mut router = Router::new();
-    router.get("/", index, "index");
-    router.get("/:author_email", threads, "threads");
-    router.get("/:author_email/:topic", notes, "notes");
-
-    router.post("/email", receive_email, "email");
 
     let mut chain = Chain::new(router);
     chain.link_before(logger_before);
