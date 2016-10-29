@@ -3,9 +3,6 @@ name = "write-only-space"
 version = "0.0.0"
 authors = ["phil <uniphil@gmail.com>"]
 
-[[bin]]
-name = "hello"
-
 [dependencies]
 chrono = "0.2"
 iron = "0.4"
