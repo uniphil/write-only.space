@@ -11,7 +11,8 @@ extern crate r2d2_postgres;
 extern crate route;
 extern crate url;
 
-use iron::{Iron, Chain, Request, Response, IronResult, Plugin, status};
+use iron::{Iron, Chain, Request, Response, IronResult, Plugin};
+use iron::status::Status;
 use iron::mime::Mime;
 use iron::typemap::Key;
 use logger::Logger;
@@ -84,43 +85,53 @@ fn show_post(post: Post) -> String {
         content = post.body)
 }
 
-fn topics_page(author: String, topics: Vec<String>) -> String {
+fn topics_page(author: String, topics: Vec<String>) -> (Status, String) {
     if topics.len() > 0 {
         let ts = topics.into_iter().map(|t| (&author, t)).collect();
-        format!("
+        (Status::Ok, format!("
             <h2>Notes by {author}</h2>
             {topics}",
             author = author,
-            topics = ul(ts, &link_topic))
+            topics = ul(ts, &link_topic)))
     } else {
-        format!("
+        (Status::NotFound, format!("
             <h2>No notes by {author}</h2>
             <p>Create notes by emailing <a href=\"mailto:note@write-only.space\">note@write-only.space</a> if {author} is your email address.</p>
             <p>Notes are grouped into threads by the email subject.</p>",
-            author = author)
+            author = author))
     }
 }
 
-fn posts_page(author: String, topic: String, posts: Vec<Post>) -> String {
-    format!("
-        <h2>
-            <a href=\"/{authorlink}\" title=\"Notes by {author}\">{author}</a>
-            &ndash;
-            {topic}
-        </h2>
-        {posts}",
-        authorlink = utf8_percent_encode(&author, PATH_SEGMENT_ENCODE_SET),
-        author = &author,
-        topic = topic,
-        posts = ul(posts, &show_post))
+fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Status, String) {
+    if posts.len() > 0 {
+        (Status::Ok, format!("
+            <h2>
+                <a href=\"/{authorlink}\" title=\"Notes by {author}\">{author}</a>
+                &ndash;
+                {topic}
+            </h2>
+            {posts}",
+            authorlink = utf8_percent_encode(&author, PATH_SEGMENT_ENCODE_SET),
+            author = &author,
+            topic = topic,
+            posts = ul(posts, &show_post)))
+    } else {
+        (Status::NotFound, format!("
+            <h2>No notes on \"{topic}\" by {author}</h2>
+            <p><strong>Are you {author}?</strong></p>
+            <p>Post notes here by emailing them to <a href=\"mailto:note@write-only.space?subject={topiclink}\">note@write-only.space</a> with <strong>\"{topic}\"</strong> as the subject line.",
+            topic = topic,
+            topiclink = utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET),
+            author = author))
+    }
 }
 
 fn render(page: PageContent) -> IronResult<Response> {
     let title = "write-only.space";
 
-    let content = match page {
+    let (status, content) = match page {
         PageContent::Home { authors } =>
-            ul(authors, &link_author),
+            (Status::Ok, ul(authors, &link_author)),
         PageContent::Topics { author, topics } =>
             topics_page(author, topics),
         PageContent::Posts { author, topic, posts } =>
@@ -147,7 +158,7 @@ fn render(page: PageContent) -> IronResult<Response> {
 
     Ok(Response::with(
     ( "text/html".parse::<Mime>().unwrap()
-    , status::Ok
+    , status
     , html
     )))
 }
@@ -252,7 +263,7 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
 
     let resp = Response::with(
     ( "text/html".parse::<Mime>().unwrap()
-    , status::Ok
+    , Status::Ok
     , "wooo"
     ));
     Ok(resp)
@@ -288,7 +299,7 @@ fn router(req: &mut Request) -> IronResult<Response> {
         Page::Topic { username, topic } => notes(req, username, topic),
         Page::ReceiveEmail => receive_email(req),
         Page::NotFound =>
-            Ok(Response::with((status::NotFound))),
+            Ok(Response::with((Status::NotFound))),
     }
 }
 
