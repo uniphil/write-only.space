@@ -61,7 +61,13 @@ fn base(content: &str) -> String {
 fn index(req: &mut Request) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
     let authors = conn
-        .query("SELECT DISTINCT sender FROM post", &[])
+        .query("
+            SELECT
+                sender,
+                max(timestamp) as latest
+            FROM post
+            GROUP BY sender
+            ORDER BY latest DESC", &[])
         .unwrap()
         .iter()
         .map(|row| {
@@ -94,7 +100,15 @@ fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
         .decode_utf8_lossy()
         .into_owned();
     let threads = conn
-        .query("SELECT DISTINCT thread FROM post WHERE sender = $1", &[author_email])
+        .query("
+            SELECT
+                thread,
+                max(timestamp) as latest
+            FROM post
+            WHERE sender = $1
+            GROUP BY thread
+            ORDER BY latest DESC
+        ", &[author_email])
         .unwrap()
         .iter()
         .map(|row| {
@@ -142,7 +156,12 @@ fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
         .into_owned();
 
     let notes = conn
-        .query("SELECT body, timestamp FROM post WHERE sender = $1 AND thread = $2", &[author_email, topic])
+        .query("
+            SELECT body, timestamp
+            FROM post
+            WHERE sender = $1 AND thread = $2
+            ORDER BY timestamp DESC
+        ", &[author_email, topic])
         .unwrap()
         .iter()
         .map(|row| {
