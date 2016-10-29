@@ -50,6 +50,37 @@ struct Post {
 
 
 #[derive(Debug, PartialEq, Eq)]
+enum Title {
+    Nothing,
+    Add(String),
+    Replace(String),
+}
+impl Title {
+    fn add(self, child: Title, sep: &str) -> Title {
+        use self::Title::*;
+        match (self, child) {
+            (Nothing,    Nothing)    => Nothing,
+            (Nothing,    _child)     => _child,
+            (_self,      Nothing)    => _self,
+            (Add(s),     Add(c))     => Add(format!("{} {} {}", c, sep, s)),
+            (Add(_),     Replace(c)) => Add(c),
+            (Replace(s), Add(c))     => Replace(format!("{} {} {}", c, sep, s)),
+            (Replace(_), Replace(c)) => Replace(c),
+        }
+    }
+}
+impl std::fmt::Display for Title {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        use self::Title::*;
+        write!(f, "🌘 {}", match *self {
+            Nothing => "",
+            Add(ref s) | Replace(ref s) => s,
+        })
+    }
+}
+
+
+#[derive(Debug, PartialEq, Eq)]
 enum PageContent {
     Home { authors: Vec<String> },
     Topics { author: String, topics: Vec<String> },
@@ -85,16 +116,17 @@ fn show_post(post: Post) -> String {
         content = post.body)
 }
 
-fn topics_page(author: String, topics: Vec<String>) -> (Status, String) {
+fn topics_page(author: String, topics: Vec<String>) -> (Title, Status, String) {
     if topics.len() > 0 {
+        let title = format!("{}'s notes", &author);
         let ts = topics.into_iter().map(|t| (&author, t)).collect();
-        (Status::Ok, format!("
+        (Title::Add(title), Status::Ok, format!("
             <h2>Notes by {author}</h2>
             {topics}",
             author = author,
             topics = ul(ts, &link_topic)))
     } else {
-        (Status::NotFound, format!("
+        (Title::Nothing, Status::NotFound, format!("
             <h2>No notes by {author}</h2>
             <p>Create notes by emailing <a href=\"mailto:note@write-only.space\">note@write-only.space</a> if {author} is your email address.</p>
             <p>Notes are grouped into threads by the email subject.</p>",
@@ -102,9 +134,9 @@ fn topics_page(author: String, topics: Vec<String>) -> (Status, String) {
     }
 }
 
-fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Status, String) {
+fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status, String) {
     if posts.len() > 0 {
-        (Status::Ok, format!("
+        (Title::Add((&topic).to_string()), Status::Ok, format!("
             <h2>
                 <a href=\"/{authorlink}\" title=\"Notes by {author}\">{author}</a>
                 &ndash;
@@ -116,7 +148,7 @@ fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Status, Strin
             topic = topic,
             posts = ul(posts, &show_post)))
     } else {
-        (Status::NotFound, format!("
+        (Title::Nothing, Status::NotFound, format!("
             <h2>No notes on \"{topic}\" by {author}</h2>
             <p><strong>Are you {author}?</strong></p>
             <p>Post notes here by emailing them to <a href=\"mailto:note@write-only.space?subject={topiclink}\">note@write-only.space</a> with <strong>\"{topic}\"</strong> as the subject line.",
@@ -127,11 +159,9 @@ fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Status, Strin
 }
 
 fn render(page: PageContent) -> IronResult<Response> {
-    let title = "write-only.space";
-
-    let (status, content) = match page {
+    let (title, status, content) = match page {
         PageContent::Home { authors } =>
-            (Status::Ok, ul(authors, &link_author)),
+            (Title::Nothing, Status::Ok, ul(authors, &link_author)),
         PageContent::Topics { author, topics } =>
             topics_page(author, topics),
         PageContent::Posts { author, topic, posts } =>
@@ -153,7 +183,7 @@ fn render(page: PageContent) -> IronResult<Response> {
                 </section>
             </body>
         </html>",
-        title = title,
+        title = Title::Add("write-only☄space".to_string()).add(title, "|"),
         content = content);
 
     Ok(Response::with(
