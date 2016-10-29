@@ -34,27 +34,116 @@ impl Key for PostgresDB {
 #[derive(Debug, PartialEq, Eq)]
 enum Page<'a> {
     Home,
-    Author(&'a str),
-    Topic(&'a str, &'a str),
+    Author { username: &'a str },
+    Topic { username: &'a str, topic: &'a str },
     ReceiveEmail,
     NotFound,
 }
 
 
-fn base(content: &str) -> String {
+#[derive(Debug, PartialEq, Eq)]
+struct Post {
+    body: String,
+    timestamp: chrono::NaiveDateTime,
+}
+
+
+#[derive(Debug, PartialEq, Eq)]
+enum PageContent {
+    Home { authors: Vec<String> },
+    Topics { author: String, topics: Vec<String> },
+    Posts { author: String, topic: String, posts: Vec<Post> },
+}
+
+
+fn ul<T>(items: Vec<T>, format_item: &Fn(T) -> String) -> String {
+    format!("<ul>{}</ul>", items
+        .into_iter()
+        .map(|item| format!("<li>{}</li>", format_item(item)))
+        .collect::<Vec<String>>()
+        .join(""))
+}
+
+fn link_author(username: String) -> String {
+    format!("<a href=\"/{link}\" title=\"Notes from {username}\">{username}</a>",
+        link = utf8_percent_encode(&username, PATH_SEGMENT_ENCODE_SET),
+        username = username)
+}
+
+fn link_topic((username, topic): (&String, String)) -> String {
+    format!("<a href=\"/{userlink}/{topiclink}\" title=\"Notes in {topic}\">{topic}</a>",
+        userlink = utf8_percent_encode(username, PATH_SEGMENT_ENCODE_SET),
+        topiclink = utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET),
+        topic = topic)
+}
+
+fn show_post(post: Post) -> String {
+    format!("<p><strong>{date}</strong></p>
+        {content}",
+        date = &post.timestamp.format("%Y %B %e"),
+        content = post.body)
+}
+
+fn topics_page(author: String, topics: Vec<String>) -> String {
+    if topics.len() > 0 {
+        let ts = topics.into_iter().map(|t| (&author, t)).collect();
+        format!("
+            <h2>Notes by {author}</h2>
+            {topics}",
+            author = author,
+            topics = ul(ts, &link_topic))
+    } else {
+        format!("
+            <h2>No notes by {author}</h2>
+            <p>Create notes by emailing <a href=\"mailto:note@write-only.space\">note@write-only.space</a> if {author} is your email address.</p>
+            <p>Notes are grouped into threads by the email subject.</p>",
+            author = author)
+    }
+}
+
+fn posts_page(author: String, topic: String, posts: Vec<Post>) -> String {
+    format!("
+        <h2>
+            <a href=\"/{authorlink}\" title=\"Notes by {author}\">{author}</a>
+            &ndash;
+            {topic}
+        </h2>
+        {posts}",
+        authorlink = utf8_percent_encode(&author, PATH_SEGMENT_ENCODE_SET),
+        author = &author,
+        topic = topic,
+        posts = ul(posts, &show_post))
+}
+
+fn render(page: PageContent) -> String {
+    let title = "write-only.space";
+
+    let content = match page {
+        PageContent::Home { authors } =>
+            ul(authors, &link_author),
+        PageContent::Topics { author, topics } =>
+            topics_page(author, topics),
+        PageContent::Posts { author, topic, posts } =>
+            posts_page(author, topic, posts),
+    };
+
     format!("<!doctype html>
         <html>
             <head>
-                <title>write-only.space</title>
+                <meta charset=\"utf-8\" />
+                <title>{title}</title>
             </head>
             <body>
-                <h1>
+                <header>
                     <a href=\"/\" title=\"All authors\">write-only.space</a>
-                </h1>
-                {}
+                <header>
+                <section>
+                    {content}
+                </section>
             </body>
-        </html>
-        ", content)
+        </html>",
+        title = title,
+        content = content)
 }
 
 
@@ -69,37 +158,24 @@ fn index(req: &mut Request) -> IronResult<Response> {
             GROUP BY sender
             ORDER BY latest DESC", &[])
         .unwrap()
-        .iter()
-        .map(|row| {
-            let sender: String = row.get("sender");
-            format!("
-                <li>
-                    <a href=\"/{}\" title=\"Notes from {}\">{}</a>
-                </li>
-                ", utf8_percent_encode(&sender, PATH_SEGMENT_ENCODE_SET), sender, sender)
-        })
-        .collect::<Vec<String>>()
-        .join("");
-    let markup = base(&format!("
-        <h2>authors</h2>
-        <ul>
-            {}
-        </ul>
-        ", authors));
+        .into_iter()
+        .map(|row| row.get("sender"))
+        .collect::<Vec<String>>();
+
     Ok(Response::with(
     ( "text/html".parse::<Mime>().unwrap()
     , status::Ok
-    , markup
+    , render(PageContent::Home { authors: authors })
     )))
 }
 
 
 fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
-    let ref author_email = percent_decode(email.as_bytes())
+    let author = percent_decode(email.as_bytes())
         .decode_utf8_lossy()
         .into_owned();
-    let threads = conn
+    let topics = conn
         .query("
             SELECT
                 thread,
@@ -108,88 +184,44 @@ fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
             WHERE sender = $1
             GROUP BY thread
             ORDER BY latest DESC
-        ", &[author_email])
+        ", &[&author])
         .unwrap()
-        .iter()
-        .map(|row| {
-            let topic: String = row.get("thread");
-            format!("
-                <li>
-                    <a href=\"/{}/{}\" title=\"Notes in {}\">{}</a>
-                </li>
-                ", utf8_percent_encode(author_email, PATH_SEGMENT_ENCODE_SET), utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET), topic, topic)
-        })
+        .into_iter()
+        .map(|row| row.get("thread"))
         .collect::<Vec<String>>();
-    if threads.len() > 0 {
-        let markup = base(&format!("
-            <h2>Notes by {}</h2>
-            <ul>
-                {}
-            </ul>
-            ", author_email, threads.join("")));
-        Ok(Response::with(
-        ( "text/html".parse::<Mime>().unwrap()
-        , status::Ok
-        , markup
-        )))
-    } else {
-        let markup = base(&format!("
-            <h2>No notes by {}</h2>
-            <p>Create notes by emailing <a href=\"mailto:note@write-only.space\">note@write-only.space</a> if {} is your email address.</p>
-            <p>Notes are grouped into threads by the email subject.</p>
-            ", author_email, author_email));
-        Ok(Response::with(
-        ( "text/html".parse::<Mime>().unwrap()
-        , status::NotFound
-        , markup
-        )))
-    }
+
+    Ok(Response::with(
+    ( "text/html".parse::<Mime>().unwrap()
+    , status::Ok
+    , render(PageContent::Topics { author: author, topics: topics })
+    )))
 }
 
 fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
-    let ref author_email = percent_decode(email.as_bytes())
+    let author_email = percent_decode(email.as_bytes())
         .decode_utf8_lossy()
         .into_owned();
-    let ref topic = percent_decode(topic.as_bytes())
+    let topic = percent_decode(topic.as_bytes())
         .decode_utf8_lossy()
         .into_owned();
 
-    let notes = conn
+    let posts = conn
         .query("
             SELECT body, timestamp
             FROM post
             WHERE sender = $1 AND thread = $2
             ORDER BY timestamp DESC
-        ", &[author_email, topic])
+        ", &[&author_email, &topic])
         .unwrap()
-        .iter()
-        .map(|row| {
-            let body: String = row.get("body");
-            let timestamp: chrono::NaiveDateTime = row.get("timestamp");
-            format!("
-                <li>
-                    <p><strong>{}</strong></p>
-                    {}
-                </li>
-                ", &timestamp.format("%Y %B %e"), body)
-        })
-        .collect::<Vec<String>>()
-        .join("");
-    let markup = base(&format!("
-        <h2>
-            <a href=\"/{}\" title=\"Notes by {}\">{}</a>
-            &ndash;
-            {}
-        </h2>
-        <ul>
-            {}
-        </ul>
-        ", utf8_percent_encode(author_email, PATH_SEGMENT_ENCODE_SET), author_email, author_email, topic, notes));
+        .into_iter()
+        .map(|row| Post { body: row.get("body"), timestamp: row.get("timestamp") })
+        .collect();
+
     Ok(Response::with(
     ( "text/html".parse::<Mime>().unwrap()
     , status::Ok
-    , markup
+    , render(PageContent::Posts { author: author_email, topic: topic, posts: posts })
     )))
 }
 
@@ -249,8 +281,8 @@ fn get_pool(uri: &str) -> Result<PostgresPool, String> {
 route_fn!(route -> Page {
     (/) => Page::Home,
     (/"email") => Page::ReceiveEmail,
-    (/[email]) => Page::Author(email),
-    (/[email]/[topic]) => Page::Topic(email, topic),
+    (/[email]) => Page::Author { username: email },
+    (/[email]/[topic]) => Page::Topic { username: email, topic: topic },
 }, Page::NotFound);
 
 
@@ -258,8 +290,8 @@ fn router(req: &mut Request) -> IronResult<Response> {
     let path = format!("/{}", req.url.path().join("/"));
     match route(&path) {
         Page::Home => index(req),
-        Page::Author(email) => threads(req, email),
-        Page::Topic(email, subject) => notes(req, email, subject),
+        Page::Author { username } => threads(req, username),
+        Page::Topic { username, topic } => notes(req, username, topic),
         Page::ReceiveEmail => receive_email(req),
         Page::NotFound =>
             Ok(Response::with((status::NotFound))),
