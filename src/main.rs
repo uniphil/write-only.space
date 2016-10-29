@@ -115,7 +115,7 @@ fn posts_page(author: String, topic: String, posts: Vec<Post>) -> String {
         posts = ul(posts, &show_post))
 }
 
-fn render(page: PageContent) -> String {
+fn render(page: PageContent) -> IronResult<Response> {
     let title = "write-only.space";
 
     let content = match page {
@@ -127,7 +127,7 @@ fn render(page: PageContent) -> String {
             posts_page(author, topic, posts),
     };
 
-    format!("<!doctype html>
+    let html = format!("<!doctype html>
         <html>
             <head>
                 <meta charset=\"utf-8\" />
@@ -143,7 +143,13 @@ fn render(page: PageContent) -> String {
             </body>
         </html>",
         title = title,
-        content = content)
+        content = content);
+
+    Ok(Response::with(
+    ( "text/html".parse::<Mime>().unwrap()
+    , status::Ok
+    , html
+    )))
 }
 
 
@@ -162,11 +168,7 @@ fn index(req: &mut Request) -> IronResult<Response> {
         .map(|row| row.get("sender"))
         .collect::<Vec<String>>();
 
-    Ok(Response::with(
-    ( "text/html".parse::<Mime>().unwrap()
-    , status::Ok
-    , render(PageContent::Home { authors: authors })
-    )))
+    render(PageContent::Home { authors: authors })
 }
 
 
@@ -190,11 +192,7 @@ fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
         .map(|row| row.get("thread"))
         .collect::<Vec<String>>();
 
-    Ok(Response::with(
-    ( "text/html".parse::<Mime>().unwrap()
-    , status::Ok
-    , render(PageContent::Topics { author: author, topics: topics })
-    )))
+    render(PageContent::Topics { author: author, topics: topics })
 }
 
 fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
@@ -218,11 +216,7 @@ fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
         .map(|row| Post { body: row.get("body"), timestamp: row.get("timestamp") })
         .collect();
 
-    Ok(Response::with(
-    ( "text/html".parse::<Mime>().unwrap()
-    , status::Ok
-    , render(PageContent::Posts { author: author_email, topic: topic, posts: posts })
-    )))
+    render(PageContent::Posts { author: author_email, topic: topic, posts: posts })
 }
 
 
