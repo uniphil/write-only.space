@@ -11,7 +11,7 @@ extern crate r2d2_postgres;
 extern crate route;
 extern crate url;
 
-use chrono::{DateTime, UTC, offset, NaiveDateTime, Duration};
+use chrono::{DateTime, UTC, offset};
 use iron::{Iron, Chain, Request, Response, IronResult, Plugin};
 use iron::status::Status;
 use iron::mime::Mime;
@@ -37,7 +37,7 @@ impl Key for PostgresDB {
 #[derive(Debug, PartialEq, Eq)]
 struct Post {
     body: String,
-    timestamp: NaiveDateTime,
+    timestamp: DateTime<UTC>,
 }
 
 
@@ -74,7 +74,7 @@ impl std::fmt::Display for Title {
 
 #[derive(Debug, PartialEq, Eq)]
 enum PageContent {
-    Home { authors: Vec<(String, NaiveDateTime)> },
+    Home { authors: Vec<(String, DateTime<UTC>)> },
     Topics { author: String, topics: Vec<String> },
     Posts { author: String, topic: String, posts: Vec<Post> },
 }
@@ -96,10 +96,9 @@ fn link_author(username: &String) -> String {
     tag!(a[href=link][title=title]: username)
 }
 
-fn days_ago(t: &NaiveDateTime) -> String {
+fn days_ago(t: &DateTime<UTC>) -> String {
     let now = UTC::now();
-    let when: DateTime<UTC> = DateTime::from_utc(*t, offset::utc::UTC);
-    match (when - now).num_days() {
+    match (*t - now).num_days() {
         n if n > 1 => format!("in {} days", n),
         1          => format!("tomorrow"),
         0          => format!("today"),
@@ -108,7 +107,7 @@ fn days_ago(t: &NaiveDateTime) -> String {
     }
 }
 
-fn link_author_latest(&(ref author, ref latest): &(String, NaiveDateTime)) -> String {
+fn link_author_latest(&(ref author, ref latest): &(String, DateTime<UTC>)) -> String {
     tag!(p: link_author(&author), " ", days_ago(latest))
 }
 
@@ -126,7 +125,7 @@ fn show_post(post: &Post) -> String {
         post.body]
 }
 
-fn home_page(authors: Vec<(String, NaiveDateTime)>) -> (Title, Status, String) {
+fn home_page(authors: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
     let title = String::from("Write like nobody's reading on write-only.space");
     (Title::Replace(title), Status::Ok, join![
         tag!(h1: "Write like nobody's reading"),
@@ -228,7 +227,7 @@ fn index(req: &mut Request) -> IronResult<Response> {
             ORDER BY latest DESC", &[])
         .unwrap()
         .into_iter()
-        .map(|row| (row.get("sender"), row.get("latest")))
+        .map(|row| (row.get("sender"), DateTime::from_utc(row.get("latest"), offset::utc::UTC)))
         .collect();
 
     render(PageContent::Home { authors: authors })
@@ -276,7 +275,10 @@ fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
         ", &[&author_email, &topic])
         .unwrap()
         .into_iter()
-        .map(|row| Post { body: row.get("body"), timestamp: row.get("timestamp") })
+        .map(|row| Post {
+            body: row.get("body"),
+            timestamp: DateTime::from_utc(row.get("timestamp"), offset::utc::UTC),
+        })
         .collect();
 
     render(PageContent::Posts { author: author_email, topic: topic, posts: posts })
