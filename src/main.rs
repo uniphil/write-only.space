@@ -22,6 +22,8 @@ use r2d2_postgres::{SslMode, PostgresConnectionManager};
 use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, utf8_percent_encode, percent_decode};
 
 mod db;
+#[macro_use]
+mod html;
 mod migrate;
 
 type PostgresPool = r2d2::Pool<PostgresConnectionManager>;
@@ -80,71 +82,68 @@ enum PageContent {
 fn ul<I, T, F>(items: I, format_item: F) -> String
 where I: IntoIterator<Item=T>,
       F: Fn(T) -> String {
-    format!("<ul>{}</ul>", items
+    tag!(ul: items
         .into_iter()
-        .map(|item| format!("<li>{}</li>", format_item(item)))
+        .map(|item| tag!(li: format_item(item)))
         .collect::<Vec<String>>()
         .join(""))
 }
 
 fn link_author(username: String) -> String {
-    format!("<a href=\"/{link}\" title=\"Notes from {username}\">{username}</a>",
-        link = utf8_percent_encode(&username, PATH_SEGMENT_ENCODE_SET),
-        username = username)
+    let link = utf8_percent_encode(&username, PATH_SEGMENT_ENCODE_SET);
+    let title = format!("Notes from {}", &username);
+    tag!(a[href=link][title=title]: username)
 }
 
 fn link_topic((username, ref topic): (&String, String)) -> String {
-    format!("<a href=\"/{userlink}/{topiclink}\" title=\"Notes in {topic}\">{topic}</a>",
-        userlink = utf8_percent_encode(username, PATH_SEGMENT_ENCODE_SET),
-        topiclink = utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET),
-        topic = topic)
+    let link = format!("/{}/{}",
+        utf8_percent_encode(username, PATH_SEGMENT_ENCODE_SET),
+        utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET));
+    let title = format!("Notes in {}", topic);
+    tag!(a[href=link][title=title]: topic)
 }
 
 fn show_post(post: Post) -> String {
-    format!("<p><strong>{date}</strong></p>
-        {content}",
-        date = &post.timestamp.format("%Y %B %e"),
-        content = post.body)
+    join![
+        tag!(p: tag!(string: &post.timestamp.format("%Y %B %e"))),
+        post.body]
 }
 
 fn topics_page(author: String, topics: Vec<String>) -> (Title, Status, String) {
     if topics.len() > 0 {
         let ts = topics.into_iter().map(|t| (&author, t));
-        (Title::Add((&author).to_string()), Status::Ok, format!("
-            <h2>Notes by {author}</h2>
-            {topics}",
-            author = author,
-            topics = ul(ts, &link_topic)))
+        (Title::Add((&author).to_string()), Status::Ok, join!(
+            tag!(h2: "Notes by ", author),
+            ul(ts, &link_topic)))
     } else {
-        (Title::Nothing, Status::NotFound, format!("
-            <h2>No notes by {author}</h2>
-            <p>Create notes by emailing <a href=\"mailto:note@write-only.space\">note@write-only.space</a> if {author} is your email address.</p>
-            <p>Notes are grouped into threads by the email subject.</p>",
-            author = author))
+        (Title::Nothing, Status::NotFound, join!(
+            tag!(h2: "No notes by ", author),
+            tag!(p: "Create notes by emailing ",
+                tag!(a[href="mailto:note@write-only.space"]: "note@write-only.space"),
+                " if ", author, " is your email address."),
+            tag!(p: "Notes are grouped into threads by the email subject.")))
     }
 }
 
 fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status, String) {
     if posts.len() > 0 {
-        (Title::Add((&topic).to_string()), Status::Ok, format!("
-            <h2>
-                <a href=\"/{authorlink}\" title=\"Notes by {author}\">{author}</a>
-                &ndash;
-                {topic}
-            </h2>
-            {posts}",
-            authorlink = utf8_percent_encode(&author, PATH_SEGMENT_ENCODE_SET),
-            author = &author,
-            topic = topic,
-            posts = ul(posts, &show_post)))
+        let link = format!("/{}", utf8_percent_encode(&author, PATH_SEGMENT_ENCODE_SET));
+        let title = join!("Notes by ", &author);
+        (Title::Add((&topic).to_string()), Status::Ok, join!(
+            tag!(h2:
+                tag!(a[href=link][title=title]: author),
+                " &ndash; ",
+                topic),
+            ul(posts, &show_post)))
     } else {
-        (Title::Nothing, Status::NotFound, format!("
-            <h2>No notes on \"{topic}\" by {author}</h2>
-            <p><strong>Are you {author}?</strong></p>
-            <p>Post notes here by emailing them to <a href=\"mailto:note@write-only.space?subject={topiclink}\">note@write-only.space</a> with <strong>\"{topic}\"</strong> as the subject line.",
-            topic = topic,
-            topiclink = utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET),
-            author = author))
+        let mailto = format!("mailto:note@write-only.space?subject={}",
+            utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET));
+        (Title::Nothing, Status::NotFound, join!(
+            tag!(h2: "No notes on ", &topic, " by ", &author),
+            tag!(p: tag!(strong: "Are you ", &author, "?")),
+            tag!(p: "Post notes here by emailing them to ",
+                tag!(a[href=mailto]: "note@write-only.space"),
+                " with ", tag!(strong: &topic),  " as the subject line.")))
     }
 }
 
@@ -158,23 +157,22 @@ fn render(page: PageContent) -> IronResult<Response> {
             posts_page(author, topic, posts),
     };
 
-    let html = format!("<!doctype html>
-        <html>
-            <head>
-                <meta charset=\"utf-8\" />
-                <title>{title}</title>
-            </head>
-            <body>
-                <header>
-                    <a href=\"/\" title=\"All authors\">write-only.space</a>
-                <header>
-                <section>
-                    {content}
-                </section>
-            </body>
-        </html>",
-        title = Title::Add("write-only☄space".to_string()).add(title, "|"),
-        content = content);
+    let html = {
+        let title = Title::Add("write-only☄space".to_string()).add(title, "|");
+        join!["<!doctype html>",
+            tag!(html:
+                tag!(head:
+                    tag!(meta[charset="utf-8"]),
+                    tag!(title: title)
+                ),
+                tag!(body:
+                    tag!(header:
+                        tag!(a[href="/"][title="Home"]: "write-only☄space")
+                    ),
+                    tag!(section: content)
+                )
+            )]
+    };
 
     Ok(Response::with(
     ( "text/html".parse::<Mime>().unwrap()
