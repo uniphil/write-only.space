@@ -229,6 +229,7 @@ fn index(req: &mut Request) -> IronResult<Response> {
                 email,
                 max(post.timestamp) as latest
             FROM post, author
+            WHERE post.author = author.email
             GROUP BY email
             ORDER BY latest DESC", &[])
         .unwrap()
@@ -251,7 +252,8 @@ fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
                 thread,
                 max(post.timestamp) as latest
             FROM post, author
-            WHERE author.email = $1
+            WHERE post.author = author.email
+              AND author.email = $1
             GROUP BY thread
             ORDER BY latest DESC
         ", &[&author])
@@ -278,7 +280,9 @@ fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
                 body,
                 post.timestamp
             FROM post, author
-            WHERE author.email = $1 AND thread = $2
+            WHERE post.author = author.email
+              AND author.email = $1
+              AND thread = $2
             ORDER BY post.timestamp DESC
         ", &[&author_email, &topic])
         .unwrap()
