@@ -75,7 +75,7 @@ impl std::fmt::Display for Title {
 #[derive(Debug, PartialEq, Eq)]
 enum PageContent {
     Home { authors: Vec<(String, DateTime<UTC>)> },
-    Topics { author: String, topics: Vec<String> },
+    Topics { author: String, topics: Vec<(String, DateTime<UTC>)> },
     Posts { author: String, topic: String, posts: Vec<Post> },
 }
 
@@ -91,7 +91,7 @@ where I: IntoIterator<Item=T>,
 }
 
 fn link_author(username: &String) -> String {
-    let link = utf8_percent_encode(&username, PATH_SEGMENT_ENCODE_SET);
+    let link = format!("/{}", utf8_percent_encode(&username, PATH_SEGMENT_ENCODE_SET));
     let title = format!("Notes from {}", &username);
     tag!(a[href=link][title=title]: username)
 }
@@ -111,18 +111,23 @@ fn link_author_latest(&(ref author, ref latest): &(String, DateTime<UTC>)) -> St
     tag!(p: link_author(&author), " ", days_ago(latest))
 }
 
-fn link_topic(&(username, ref topic): &(&String, String)) -> String {
+fn link_topic(author: &String, topic: &String) -> String {
     let link = format!("/{}/{}",
-        utf8_percent_encode(username, PATH_SEGMENT_ENCODE_SET),
-        utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET));
-    let title = format!("Notes in {}", topic);
+        utf8_percent_encode(author, PATH_SEGMENT_ENCODE_SET),
+        utf8_percent_encode(topic, PATH_SEGMENT_ENCODE_SET));
+    let title = format!("Notes on {}", topic);
     tag!(a[href=link][title=title]: topic)
+}
+
+fn link_topic_latest(author: &String, &(ref topic, latest): &(String, DateTime<UTC>)) -> String {
+    tag!(p: link_topic(author, topic), " ", days_ago(&latest))
 }
 
 fn show_post(post: &Post) -> String {
     join![
-        tag!(p: tag!(string: &post.timestamp.format("%Y %B %e"))),
-        post.body]
+        tag!(h3: &post.timestamp.format("%Y %B %e")),
+        post.body
+    ]
 }
 
 fn home_page(authors: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
@@ -140,12 +145,14 @@ fn home_page(authors: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
     ])
 }
 
-fn topics_page(author: String, topics: Vec<String>) -> (Title, Status, String) {
+fn topics_page(author: String, topics: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
     if topics.len() > 0 {
-        let ts = topics.into_iter().map(|t| (&author, t));
         (Title::Add((&author).to_string()), Status::Ok, join!(
-            tag!(h2: "Notes by ", author),
-            ul(ts, &link_topic)))
+            tag!(h1: "Notes by ", &author),
+            tag!(p: "write-only is a tiny island in cyberspace where no one visits. It's intended for writing freely, without the pressure of an audience or Internet Points. It's not for sharing."),
+            tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact ", &author, " first and ask."),
+            tag!(h2: "Topics"),
+            ul(topics, |t| link_topic_latest(&author, t))))
     } else {
         (Title::Nothing, Status::NotFound, join!(
             tag!(h2: "No notes by ", author),
@@ -158,13 +165,12 @@ fn topics_page(author: String, topics: Vec<String>) -> (Title, Status, String) {
 
 fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status, String) {
     if posts.len() > 0 {
-        let link = format!("/{}", utf8_percent_encode(&author, PATH_SEGMENT_ENCODE_SET));
-        let title = join!("Notes by ", &author);
         (Title::Add((&topic).to_string()), Status::Ok, join!(
-            tag!(h2:
-                tag!(a[href=link][title=title]: author),
-                " &ndash; ",
-                topic),
+            tag!(p[class="heads-up"]:
+                tag!(strong: "Heads up:"),
+                " write-only is a tiny island in cyberspace where no one visits. It's intended for writing freely, without the pressure of an audience or Internet Points. You can read these notes, but they're not for you. Ask before you share!."),
+            tag!(h1: topic),
+            tag!(h2[class="subtitle"]: " by ", link_author(&author)),
             ul(posts, &show_post)))
     } else {
         let mailto = format!("mailto:note@write-only.space?subject={}",
@@ -251,8 +257,8 @@ fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
         ", &[&author])
         .unwrap()
         .into_iter()
-        .map(|row| row.get("thread"))
-        .collect::<Vec<String>>();
+        .map(|row| (row.get("thread"), DateTime::from_utc(row.get("latest"), offset::utc::UTC)))
+        .collect();
 
     render(PageContent::Topics { author: author, topics: topics })
 }

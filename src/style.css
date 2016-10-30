@@ -14,11 +14,27 @@ h1 {
 
 h2 {
     font-size: 1.4em;
-    margin: 2em 0 1em;
+}
+
+h2,
+h3 {
+    margin-top: 2em;
+}
+
+.subtitle {
+    margin: 1em 0 2em;
+    font-weight: lighter;
 }
 
 p {
     line-height: 1.618;
+}
+
+.heads-up {
+    font-size: 0.8em;
+    background: hsla(0, 0%, 100%, 0.1);
+    margin: 0 -1em 3rem;
+    padding: 1em;
 }
 
 a {
