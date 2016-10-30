@@ -103,7 +103,7 @@ fn days_ago(t: &DateTime<UTC>) -> String {
         1          => format!("tomorrow"),
         0          => format!("today"),
         -1         => format!("yesterday"),
-        n          => format!("{} days ago", n),
+        n          => format!("{} days ago", n.abs()),
     }
 }
 
