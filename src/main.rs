@@ -88,7 +88,9 @@ enum PageContent {
 }
 
 
-fn ul<T>(items: Vec<T>, format_item: &Fn(T) -> String) -> String {
+fn ul<I, T, F>(items: I, format_item: F) -> String
+where I: IntoIterator<Item=T>,
+      F: Fn(T) -> String {
     format!("<ul>{}</ul>", items
         .into_iter()
         .map(|item| format!("<li>{}</li>", format_item(item)))
@@ -102,7 +104,7 @@ fn link_author(username: String) -> String {
         username = username)
 }
 
-fn link_topic((username, topic): (&String, String)) -> String {
+fn link_topic((username, ref topic): (&String, String)) -> String {
     format!("<a href=\"/{userlink}/{topiclink}\" title=\"Notes in {topic}\">{topic}</a>",
         userlink = utf8_percent_encode(username, PATH_SEGMENT_ENCODE_SET),
         topiclink = utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET),
@@ -118,9 +120,8 @@ fn show_post(post: Post) -> String {
 
 fn topics_page(author: String, topics: Vec<String>) -> (Title, Status, String) {
     if topics.len() > 0 {
-        let title = format!("{}'s notes", &author);
-        let ts = topics.into_iter().map(|t| (&author, t)).collect();
-        (Title::Add(title), Status::Ok, format!("
+        let ts = topics.into_iter().map(|t| (&author, t));
+        (Title::Add((&author).to_string()), Status::Ok, format!("
             <h2>Notes by {author}</h2>
             {topics}",
             author = author,
@@ -207,7 +208,7 @@ fn index(req: &mut Request) -> IronResult<Response> {
         .unwrap()
         .into_iter()
         .map(|row| row.get("sender"))
-        .collect::<Vec<String>>();
+        .collect();
 
     render(PageContent::Home { authors: authors })
 }
