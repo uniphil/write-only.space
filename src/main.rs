@@ -202,6 +202,8 @@ fn render(page: PageContent) -> IronResult<Response> {
                 tag!(head:
                     tag!(meta[charset="utf-8"]),
                     tag!(title: title),
+                    tag!(meta[name="viewport"][content="width=device-width, initial-scale=1"]),
+                    tag!(meta[name="description"][content="write-only is a tiny island in cyberspace where no one visits."]),
                     tag!(style: style)
                 ),
                 tag!(body:
