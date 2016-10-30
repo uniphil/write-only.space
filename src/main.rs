@@ -226,14 +226,14 @@ fn index(req: &mut Request) -> IronResult<Response> {
     let authors = conn
         .query("
             SELECT
-                sender,
-                max(timestamp) as latest
-            FROM post
-            GROUP BY sender
+                email,
+                max(post.timestamp) as latest
+            FROM post, author
+            GROUP BY email
             ORDER BY latest DESC", &[])
         .unwrap()
         .into_iter()
-        .map(|row| (row.get("sender"), DateTime::from_utc(row.get("latest"), offset::utc::UTC)))
+        .map(|row| (row.get("email"), DateTime::from_utc(row.get("latest"), offset::utc::UTC)))
         .collect();
 
     render(PageContent::Home { authors: authors })
@@ -249,9 +249,9 @@ fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
         .query("
             SELECT
                 thread,
-                max(timestamp) as latest
-            FROM post
-            WHERE sender = $1
+                max(post.timestamp) as latest
+            FROM post, author
+            WHERE author.email = $1
             GROUP BY thread
             ORDER BY latest DESC
         ", &[&author])
@@ -274,10 +274,12 @@ fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
 
     let posts = conn
         .query("
-            SELECT body, timestamp
-            FROM post
-            WHERE sender = $1 AND thread = $2
-            ORDER BY timestamp DESC
+            SELECT
+                body,
+                post.timestamp
+            FROM post, author
+            WHERE author.email = $1 AND thread = $2
+            ORDER BY post.timestamp DESC
         ", &[&author_email, &topic])
         .unwrap()
         .into_iter()
@@ -318,7 +320,19 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
     let thread = String::from_value(data.get("subject").unwrap()).unwrap();
     let body = String::from_value(data.get("stripped-html").unwrap()).unwrap();
 
-    conn.execute("INSERT INTO post (sender, thread, body) VALUES ($1, $2, $3)",
+    // create the author if they don't exist yet
+    conn.execute("
+        INSERT INTO author (email)
+            SELECT $1
+        WHERE NOT EXISTS (
+            SELECT email
+            FROM author
+            WHERE email = $1)",
+        &[&sender]).unwrap();
+    // insert the note
+    conn.execute("
+        INSERT INTO post (author, thread, body)
+        VALUES ($1, $2, $3)",
         &[&sender, &thread, &body]).unwrap();
 
     let resp = Response::with(

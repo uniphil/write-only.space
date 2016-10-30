@@ -9,6 +9,7 @@ pub fn run(conn: db::PostgresConnection) -> Result<(), ()> {
     let trans = conn.transaction().unwrap();
     let all_migrations =
         [ include_str!("./migrations/init.sql")
+        , include_str!("./migrations/add-author-table.sql")
         ];
     let all_hashes = all_migrations
         .iter()
