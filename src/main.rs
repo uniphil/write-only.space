@@ -124,25 +124,24 @@ fn link_topic_latest(author: &String, &(ref topic, latest): &(String, DateTime<U
 }
 
 fn show_post(post: &Post) -> String {
-    join![
+    tag!(article:
         tag!(h3: &post.timestamp.format("%Y %B %e")),
-        post.body
-    ]
+        post.body)
 }
 
 fn home_page(authors: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
     let title = String::from("Write like nobody's reading on write-only.space");
-    (Title::Replace(title), Status::Ok, join![
-        tag!(h1: "Write like nobody's reading"),
-        tag!(p: "write-only is a tiny island in cyberspace where no one visits. Send an email to ",
-            tag!(a[href="mailto:note@write-only.space"]: "note@write-only.space"),
-            " and it will show up here, and no one will read it."),
-        tag!(h2: "Please respect the authors"),
-        tag!(p: "What you'll find are collections of unpolished thoughts, written without the pressures of an audience or Internet Points. It's not for sharing."),
-        tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact the author first."),
-        tag!(h2: "Latest notes:"),
-        ul(authors, &link_author_latest)
-    ])
+    (Title::Replace(title), Status::Ok,
+        tag!(main:
+            tag!(h1: "Write like nobody's reading"),
+            tag!(p: "write-only is a tiny island in cyberspace where no one visits. Send an email to ",
+                tag!(a[href="mailto:note@write-only.space"]: "note@write-only.space"),
+                " and it will show up here, and no one will read it."),
+            tag!(h2: "Please respect the authors"),
+            tag!(p: "What you'll find are collections of unpolished thoughts, written without the pressures of an audience or Internet Points. It's not for sharing."),
+            tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact the author first."),
+            tag!(h2: "Latest notes:"),
+            ul(authors, &link_author_latest)))
 }
 
 fn topics_page(author: String, topics: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
@@ -151,15 +150,17 @@ fn topics_page(author: String, topics: Vec<(String, DateTime<UTC>)>) -> (Title, 
             tag!(h1: "Notes by ", &author),
             tag!(p: "write-only is a tiny island in cyberspace where no one visits. It's intended for writing freely, without the pressure of an audience or Internet Points. It's not for sharing."),
             tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact ", &author, " first and ask."),
-            tag!(h2: "Topics"),
-            ul(topics, |t| link_topic_latest(&author, t))))
+            tag!(main:
+                tag!(h2: "Topics"),
+                ul(topics, |t| link_topic_latest(&author, t)))))
     } else {
-        (Title::Nothing, Status::NotFound, join!(
-            tag!(h2: "No notes by ", author),
-            tag!(p: "Create notes by emailing ",
-                tag!(a[href="mailto:note@write-only.space"]: "note@write-only.space"),
-                " if ", author, " is your email address."),
-            tag!(p: "Notes are grouped into threads by the email subject.")))
+        (Title::Nothing, Status::NotFound,
+            tag!(main:
+                tag!(h2: "No notes by ", author),
+                tag!(p: "Create notes by emailing ",
+                    tag!(a[href="mailto:note@write-only.space"]: "note@write-only.space"),
+                    " if ", author, " is your email address."),
+                tag!(p: "Notes are grouped into threads by the email subject.")))
     }
 }
 
@@ -169,18 +170,20 @@ fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status
             tag!(p[class="heads-up"]:
                 tag!(strong: "Heads up:"),
                 " write-only is a tiny island in cyberspace where no one visits. It's intended for writing freely, without the pressure of an audience or Internet Points. You can read these notes, but they're not for you. Ask before you share!."),
-            tag!(h1: topic),
-            tag!(h2[class="subtitle"]: " by ", link_author(&author)),
-            ul(posts, &show_post)))
+            tag!(main:
+                tag!(h1: topic),
+                tag!(h2[class="subtitle"]: " by ", link_author(&author)),
+                ul(posts, &show_post))))
     } else {
         let mailto = format!("mailto:note@write-only.space?subject={}",
             utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET));
-        (Title::Nothing, Status::NotFound, join!(
-            tag!(h2: "No notes on ", &topic, " by ", &author),
-            tag!(p: tag!(strong: "Are you ", &author, "?")),
-            tag!(p: "Post notes here by emailing them to ",
-                tag!(a[href=mailto]: "note@write-only.space"),
-                " with ", tag!(strong: &topic),  " as the subject line.")))
+        (Title::Nothing, Status::NotFound,
+            tag!(main:
+                tag!(h2: "No notes on ", &topic, " by ", &author),
+                tag!(p: tag!(strong: "Are you ", &author, "?")),
+                tag!(p: "Post notes here by emailing them to ",
+                    tag!(a[href=mailto]: "note@write-only.space"),
+                    " with ", tag!(strong: &topic),  " as the subject line.")))
     }
 }
 
@@ -204,13 +207,17 @@ fn render(page: PageContent) -> IronResult<Response> {
                     tag!(title: title),
                     tag!(meta[name="viewport"][content="width=device-width, initial-scale=1"]),
                     tag!(meta[name="description"][content="write-only is a tiny island in cyberspace where no one visits."]),
+                    tag!(meta[property="og:title"][content="🌘 Write like nobody's reading"]),
+                    tag!(meta[property="og:type"][content="website"]),
+                    tag!(meta[property="og:site_name"][content="write-only"]),
+                    tag!(meta[name="theme-color"][content="#034"]),
                     tag!(style: style)
                 ),
                 tag!(body:
                     tag!(header:
                         tag!(a[href="/"][title="Home"]: "write-only☄space")
                     ),
-                    tag!(section: content)
+                    tag!(section[id="content"]: content)
                 )
             )]
     };
