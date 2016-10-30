@@ -4,7 +4,7 @@ version = "0.0.0"
 authors = ["phil <uniphil@gmail.com>"]
 
 [dependencies]
-chrono = "0.2"
+chrono = "0.2.25"
 iron = "0.4"
 logger = "0.1"
 params = { git = "https://github.com/uniphil/params" }

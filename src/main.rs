@@ -11,6 +11,7 @@ extern crate r2d2_postgres;
 extern crate route;
 extern crate url;
 
+use chrono::{DateTime, UTC, offset, NaiveDateTime, Duration};
 use iron::{Iron, Chain, Request, Response, IronResult, Plugin};
 use iron::status::Status;
 use iron::mime::Mime;
@@ -36,7 +37,7 @@ impl Key for PostgresDB {
 #[derive(Debug, PartialEq, Eq)]
 struct Post {
     body: String,
-    timestamp: chrono::NaiveDateTime,
+    timestamp: NaiveDateTime,
 }
 
 
@@ -73,7 +74,7 @@ impl std::fmt::Display for Title {
 
 #[derive(Debug, PartialEq, Eq)]
 enum PageContent {
-    Home { authors: Vec<String> },
+    Home { authors: Vec<(String, NaiveDateTime)> },
     Topics { author: String, topics: Vec<String> },
     Posts { author: String, topic: String, posts: Vec<Post> },
 }
@@ -81,21 +82,37 @@ enum PageContent {
 
 fn ul<I, T, F>(items: I, format_item: F) -> String
 where I: IntoIterator<Item=T>,
-      F: Fn(T) -> String {
+      F: Fn(&T) -> String {
     tag!(ul: items
         .into_iter()
-        .map(|item| tag!(li: format_item(item)))
+        .map(|item| tag!(li: format_item(&item)))
         .collect::<Vec<String>>()
         .join(""))
 }
 
-fn link_author(username: String) -> String {
+fn link_author(username: &String) -> String {
     let link = utf8_percent_encode(&username, PATH_SEGMENT_ENCODE_SET);
     let title = format!("Notes from {}", &username);
     tag!(a[href=link][title=title]: username)
 }
 
-fn link_topic((username, ref topic): (&String, String)) -> String {
+fn days_ago(t: &NaiveDateTime) -> String {
+    let now = UTC::now();
+    let when: DateTime<UTC> = DateTime::from_utc(*t, offset::utc::UTC);
+    match (when - now).num_days() {
+        n if n > 1 => format!("in {} days", n),
+        1          => format!("tomorrow"),
+        0          => format!("today"),
+        -1         => format!("yesterday"),
+        n          => format!("{} days ago", n),
+    }
+}
+
+fn link_author_latest(&(ref author, ref latest): &(String, NaiveDateTime)) -> String {
+    tag!(p: link_author(&author), " ", days_ago(latest))
+}
+
+fn link_topic(&(username, ref topic): &(&String, String)) -> String {
     let link = format!("/{}/{}",
         utf8_percent_encode(username, PATH_SEGMENT_ENCODE_SET),
         utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET));
@@ -103,13 +120,13 @@ fn link_topic((username, ref topic): (&String, String)) -> String {
     tag!(a[href=link][title=title]: topic)
 }
 
-fn show_post(post: Post) -> String {
+fn show_post(post: &Post) -> String {
     join![
         tag!(p: tag!(string: &post.timestamp.format("%Y %B %e"))),
         post.body]
 }
 
-fn home_page(authors: Vec<String>) -> (Title, Status, String) {
+fn home_page(authors: Vec<(String, NaiveDateTime)>) -> (Title, Status, String) {
     let title = String::from("Write like nobody's reading on write-only.space");
     (Title::Replace(title), Status::Ok, join![
         tag!(h1: "Write like nobody's reading"),
@@ -120,7 +137,7 @@ fn home_page(authors: Vec<String>) -> (Title, Status, String) {
         tag!(p: "What you'll find are collections of unpolished thoughts, written without the pressures of an audience or Internet Points. It's not for sharing."),
         tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact the author first."),
         tag!(h2: "Latest notes:"),
-        ul(authors, &link_author)
+        ul(authors, &link_author_latest)
     ])
 }
 
@@ -211,7 +228,7 @@ fn index(req: &mut Request) -> IronResult<Response> {
             ORDER BY latest DESC", &[])
         .unwrap()
         .into_iter()
-        .map(|row| row.get("sender"))
+        .map(|row| (row.get("sender"), row.get("latest")))
         .collect();
 
     render(PageContent::Home { authors: authors })

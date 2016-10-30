@@ -44,3 +44,13 @@ body > section {
     max-width: 680px;
     padding: 2em 1em;
 }
+
+body > section > ul {
+    margin: 0;
+    padding: 0;
+}
+
+body > section > ul > li {
+    list-style-type: none;
+    margin: 1em 0;
+}
