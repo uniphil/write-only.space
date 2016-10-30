@@ -109,6 +109,21 @@ fn show_post(post: Post) -> String {
         post.body]
 }
 
+fn home_page(authors: Vec<String>) -> (Title, Status, String) {
+    let title = String::from("Write like nobody's reading on write-only.space");
+    (Title::Replace(title), Status::Ok, join![
+        tag!(h1: "Write like nobody's reading"),
+        tag!(p: "write-only is a tiny island in cyberspace where no one visits. Send an email to ",
+            tag!(a[href="mailto:note@write-only.space"]: "note@write-only.space"),
+            " and it will show up here, and no one will read it."),
+        tag!(h2: "Please respect the authors"),
+        tag!(p: "What you'll find are collections of unpolished thoughts, written without the pressures of an audience or Internet Points. It's not for sharing."),
+        tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact the author first."),
+        tag!(h2: "Latest notes:"),
+        ul(authors, &link_author)
+    ])
+}
+
 fn topics_page(author: String, topics: Vec<String>) -> (Title, Status, String) {
     if topics.len() > 0 {
         let ts = topics.into_iter().map(|t| (&author, t));
@@ -150,7 +165,7 @@ fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status
 fn render(page: PageContent) -> IronResult<Response> {
     let (title, status, content) = match page {
         PageContent::Home { authors } =>
-            (Title::Nothing, Status::Ok, ul(authors, &link_author)),
+            home_page(authors),
         PageContent::Topics { author, topics } =>
             topics_page(author, topics),
         PageContent::Posts { author, topic, posts } =>
@@ -159,11 +174,13 @@ fn render(page: PageContent) -> IronResult<Response> {
 
     let html = {
         let title = Title::Add("write-only☄space".to_string()).add(title, "|");
+        let style = include_str!("style.css");
         join!["<!doctype html>",
             tag!(html:
                 tag!(head:
                     tag!(meta[charset="utf-8"]),
-                    tag!(title: title)
+                    tag!(title: title),
+                    tag!(style: style)
                 ),
                 tag!(body:
                     tag!(header:
