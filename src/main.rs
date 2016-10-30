@@ -31,17 +31,6 @@ impl Key for PostgresDB {
     type Value = PostgresPool;
 }
 
-
-#[derive(Debug, PartialEq, Eq)]
-enum Page<'a> {
-    Home,
-    Author { username: &'a str },
-    Topic { username: &'a str, topic: &'a str },
-    ReceiveEmail,
-    NotFound,
-}
-
-
 #[derive(Debug, PartialEq, Eq)]
 struct Post {
     body: String,
@@ -314,24 +303,15 @@ fn get_pool(uri: &str) -> Result<PostgresPool, String> {
 }
 
 
-route_fn!(route -> Page {
-    (/) => Page::Home,
-    (/"email") => Page::ReceiveEmail,
-    (/[email]) => Page::Author { username: email },
-    (/[email]/[topic]) => Page::Topic { username: email, topic: topic },
-}, Page::NotFound);
-
-
 fn router(req: &mut Request) -> IronResult<Response> {
     let path = format!("/{}", req.url.path().join("/"));
-    match route(&path) {
-        Page::Home => index(req),
-        Page::Author { username } => threads(req, username),
-        Page::Topic { username, topic } => notes(req, username, topic),
-        Page::ReceiveEmail => receive_email(req),
-        Page::NotFound =>
-            Ok(Response::with((Status::NotFound))),
-    }
+    route!(path, {
+    (/)                 => index(req);
+    (/"email")          => receive_email(req);
+    (/[email])          => threads(req, email);
+    (/[email]/[topic])  => notes(req, email, topic);
+    });
+    Ok(Response::with((Status::NotFound)))
 }
 
 
