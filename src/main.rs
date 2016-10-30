@@ -366,6 +366,7 @@ fn router(req: &mut Request) -> IronResult<Response> {
     route!(path, {
     (/)                 => index(req);
     (/"email")          => receive_email(req);
+    (/"robots.txt")     => Ok(Response::with((Status::Ok, include_str!("robots.txt"))));
     (/[email])          => threads(req, email);
     (/[email]/[topic])  => notes(req, email, topic);
     });
