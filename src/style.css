@@ -71,3 +71,7 @@ header {
     list-style-type: none;
     margin: 1em 0;
 }
+
+section :not(a) {
+    color: #fff !important;
+}

@@ -365,16 +365,16 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
             WHERE email = $1)",
         &[&sender]).unwrap();
 
-    // if it's a new user, send a welcome email
-    if added == 1 {
-        email::welcome(&MAILGUN_DOMAIN, &MAILGUN_KEY, &sender, &topic, message_id);
-    }
-
     // insert the note
     conn.execute("
         INSERT INTO post (author, thread, body)
         VALUES ($1, $2, $3)",
         &[&sender, &topic, &body]).unwrap();
+
+    // if it's a new user, send a welcome email
+    if added == 1 {
+        email::welcome(&MAILGUN_DOMAIN, &MAILGUN_KEY, &sender, &topic, message_id);
+    }
 
     let resp = Response::with(
     ( "text/html".parse::<Mime>().unwrap()
