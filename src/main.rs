@@ -1,5 +1,13 @@
+#[macro_use]
+extern crate lazy_static;
+#[no_link]
+#[macro_use]
+extern crate route;
+
 extern crate chrono;
 extern crate crypto;
+extern crate hyper;
+extern crate hyper_rustls;
 extern crate iron;
 extern crate logger;
 extern crate params;
@@ -7,8 +15,6 @@ extern crate persistent;
 extern crate postgres;
 extern crate r2d2;
 extern crate r2d2_postgres;
-#[macro_use]
-extern crate route;
 extern crate url;
 
 use chrono::{DateTime, UTC, offset};
@@ -22,9 +28,11 @@ use persistent::Read as PRead;
 use r2d2_postgres::{SslMode, PostgresConnectionManager};
 use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, utf8_percent_encode, percent_decode};
 
-mod db;
 #[macro_use]
 mod html;
+
+mod db;
+mod email;
 mod migrate;
 
 type PostgresPool = r2d2::Pool<PostgresConnectionManager>;
@@ -330,11 +338,25 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
 
     let sender = String::from_value(data.get("sender").unwrap()).unwrap();
-    let thread = String::from_value(data.get("subject").unwrap()).unwrap();
+    let topic = {
+        let mut subject = &String::from_value(data.get("subject").unwrap()).unwrap()[..];
+        while subject.len() >= 4 &&
+              subject[..4].to_lowercase() == *"re: " {
+            subject = &subject[4..]
+        }
+        subject.to_string()
+    };
     let body = String::from_value(data.get("stripped-html").unwrap()).unwrap();
+    let ref headers = String::from_value(data.get("message-headers").unwrap()).unwrap();
+
+    let message_id = headers
+        .find("[\"Message-Id\", \"<")
+        .and_then(|start| headers[start..]
+            .find(">")
+            .map(|len| &headers[start+16..start+len+1]));
 
     // create the author if they don't exist yet
-    conn.execute("
+    let added = conn.execute("
         INSERT INTO author (email)
             SELECT $1
         WHERE NOT EXISTS (
@@ -342,11 +364,17 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
             FROM author
             WHERE email = $1)",
         &[&sender]).unwrap();
+
+    // if it's a new user, send a welcome email
+    if added == 1 {
+        email::welcome(&MAILGUN_DOMAIN, &MAILGUN_KEY, &sender, &topic, message_id);
+    }
+
     // insert the note
     conn.execute("
         INSERT INTO post (author, thread, body)
         VALUES ($1, $2, $3)",
-        &[&sender, &thread, &body]).unwrap();
+        &[&sender, &topic, &body]).unwrap();
 
     let resp = Response::with(
     ( "text/html".parse::<Mime>().unwrap()
@@ -359,6 +387,12 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
 
 fn env(name: &str, def: &str) -> String {
     std::env::var(name).unwrap_or(def.to_string())
+}
+
+lazy_static! {
+    // sandbox account
+    static ref MAILGUN_KEY: String = env("MAILGUN_KEY", "key-7cdbe8cd5fe3a81fff2a24121c7644dc");
+    static ref MAILGUN_DOMAIN: String = env("MAILGUN_DOMAIN", "sandboxdef91d7398f94b818073e4b7a1341be7.mailgun.org");
 }
 
 fn get_pool(uri: &str) -> Result<PostgresPool, String> {
