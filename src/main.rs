@@ -82,7 +82,7 @@ impl std::fmt::Display for Title {
 
 #[derive(Debug, PartialEq, Eq)]
 enum PageContent {
-    Home { authors: Vec<(String, DateTime<UTC>)> },
+    Home { author_post_times: Vec<DateTime<UTC>> },
     Topics { author: String, topics: Vec<(String, DateTime<UTC>)> },
     Posts { author: String, topic: String, posts: Vec<Post> },
 }
@@ -115,10 +115,6 @@ fn days_ago(t: &DateTime<UTC>) -> String {
     }
 }
 
-fn link_author_latest(&(ref author, ref latest): &(String, DateTime<UTC>)) -> String {
-    tag!(p: link_author(&author), " ", days_ago(latest))
-}
-
 fn link_topic(author: &String, topic: &String) -> String {
     let link = format!("/{}/{}",
         utf8_percent_encode(author, PATH_SEGMENT_ENCODE_SET),
@@ -137,19 +133,27 @@ fn show_post(post: &Post) -> String {
         post.body)
 }
 
-fn home_page(authors: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
+fn home_page(author_post_times: Vec<DateTime<UTC>>) -> (Title, Status, String) {
     let title = String::from("Write like nobody's reading on write-only.space");
     (Title::Replace(title), Status::Ok,
         tag!(main:
             tag!(h1: "Write like nobody's reading"),
-            tag!(p: "write-only is a tiny island in cyberspace where no one visits. Send an email to ",
-                tag!(a[href="mailto:note@write-only.space"]: "note@write-only.space"),
-                " and it will show up here, and no one will read it."),
-            tag!(h2: "Please respect the authors"),
-            tag!(p: "What you'll find are collections of unpolished thoughts, written without the pressures of an audience or Internet Points. It's not for sharing."),
-            tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact the author first."),
-            tag!(h2: "Latest notes:"),
-            ul(authors, &link_author_latest)))
+            tag!(p:
+                "write-only is a tiny island in cyberspace where no one visits. You can write notes by emailing them to ",
+                tag!(a[href="mailto:note@write-only.space"]:
+                    "note@write-only.space"),
+                " &ndash; no signup required, just email a note to start. ",
+                tag!(strong:
+                    "Tip:"),
+                " use the subject line as note's topic."),
+            tag!(p:
+                "Notes here are ",
+                tag!(strong:
+                    "public but unlisted: "),
+                "they won't show up in search engine results, and you need a special link to see them. Anyone with the link can see the the notes."),
+            tag!(h2: "Recent activity:"),
+            ul(author_post_times, |when|
+                tag!(p: "posted ", days_ago(when)))))
 }
 
 fn topics_page(author: String, topics: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
@@ -197,8 +201,8 @@ fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status
 
 fn render(page: PageContent) -> IronResult<Response> {
     let (title, status, content) = match page {
-        PageContent::Home { authors } =>
-            home_page(authors),
+        PageContent::Home { author_post_times } =>
+            home_page(author_post_times),
         PageContent::Topics { author, topics } =>
             topics_page(author, topics),
         PageContent::Posts { author, topic, posts } =>
@@ -240,7 +244,7 @@ fn render(page: PageContent) -> IronResult<Response> {
 
 fn index(req: &mut Request) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
-    let authors = conn
+    let author_post_times = conn
         .query("
             SELECT
                 email,
@@ -251,10 +255,10 @@ fn index(req: &mut Request) -> IronResult<Response> {
             ORDER BY latest DESC", &[])
         .unwrap()
         .into_iter()
-        .map(|row| (row.get("email"), DateTime::from_utc(row.get("latest"), offset::utc::UTC)))
+        .map(|row| DateTime::from_utc(row.get("latest"), offset::utc::UTC))
         .collect();
 
-    render(PageContent::Home { authors: authors })
+    render(PageContent::Home { author_post_times: author_post_times })
 }
 
 
