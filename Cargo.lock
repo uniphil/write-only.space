@@ -16,6 +16,7 @@ dependencies = [
  "route 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rust-crypto 0.2.36 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uuid 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -420,6 +421,7 @@ dependencies = [
  "hex 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "phf 0.7.15 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uuid 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -634,6 +636,11 @@ dependencies = [
 ]
 
 [[package]]
+name = "uuid"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "webpki"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -739,6 +746,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum untrusted 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5d9bc0e6e73a10975d1fbff8ac3541e221181b0d8998351600fb5523de634c0d"
 "checksum url 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "8527c62d9869a08325c38272b3f85668df22a65890c61a639d233dc0ed0b23a2"
 "checksum urlencoded 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5ddcf2d3a0beedb5cdf50cabc521ab76a994907877a1d91d996c251d42c70e2e"
+"checksum uuid 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "1a9ff57156caf7e22f37baf3c9d8f6ce8194842c23419dafcb0716024514d162"
 "checksum webpki 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "813503a5985585e0812d430cd1328ee322f47f66629c8ed4ecab939cf9e92f91"
 "checksum webpki-roots 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "e9c2a71038caa5be71522e2b4e57755824e406f0c7d04d563aa6f523e02561da"
 "checksum winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "167dc9d6949a9b857f3451275e911c3f44255842c1f7a76f33c55103a909087a"

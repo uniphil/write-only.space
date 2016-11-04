@@ -16,6 +16,7 @@ extern crate postgres;
 extern crate r2d2;
 extern crate r2d2_postgres;
 extern crate url;
+extern crate uuid;
 
 use chrono::{DateTime, UTC, offset};
 use iron::{Iron, Chain, Request, Response, IronResult, Plugin};
@@ -27,6 +28,7 @@ use params::{FromValue};
 use persistent::Read as PRead;
 use r2d2_postgres::{SslMode, PostgresConnectionManager};
 use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, utf8_percent_encode, percent_decode};
+use uuid::Uuid;
 
 #[macro_use]
 mod html;
@@ -85,6 +87,7 @@ enum PageContent {
     Home { author_post_times: Vec<DateTime<UTC>> },
     Topics { author: String, topics: Vec<(String, DateTime<UTC>)> },
     Posts { author: String, topic: String, posts: Vec<Post> },
+    NotFound,
 }
 
 
@@ -199,6 +202,15 @@ fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status
     }
 }
 
+fn not_found() -> (Title, Status, String) {
+    ( Title::Replace("404".to_string())
+    , Status::NotFound
+    , tag!(main:
+        tag!(h1: "Nothing here"),
+        tag!(p: "nothing at all..."))
+    )
+}
+
 fn render(page: PageContent) -> IronResult<Response> {
     let (title, status, content) = match page {
         PageContent::Home { author_post_times } =>
@@ -207,6 +219,8 @@ fn render(page: PageContent) -> IronResult<Response> {
             topics_page(author, topics),
         PageContent::Posts { author, topic, posts } =>
             posts_page(author, topic, posts),
+        PageContent::NotFound =>
+            not_found(),
     };
 
     let html = {
@@ -262,11 +276,21 @@ fn index(req: &mut Request) -> IronResult<Response> {
 }
 
 
-fn threads(req: &mut Request, email: &str) -> IronResult<Response> {
+fn threads(req: &mut Request, key: &Uuid) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
-    let author = percent_decode(email.as_bytes())
-        .decode_utf8_lossy()
-        .into_owned();
+    let author: String = match conn
+        .query("
+            SELECT email
+            FROM author
+            WHERE key = $1
+        ", &[&key])
+        .unwrap()
+        .into_iter()
+        .map(|row| row.get("email"))
+        .next() {
+        Some(a) => a,
+        None => return Ok(Response::with((Status::NotFound))),
+    };
     let topics = conn
         .query("
             SELECT
@@ -414,10 +438,11 @@ fn router(req: &mut Request) -> IronResult<Response> {
     (/)                 => index(req);
     (/"email")          => receive_email(req);
     (/"robots.txt")     => Ok(Response::with((Status::Ok, include_str!("robots.txt"))));
-    (/[email])          => threads(req, email);
+    (/[key: Uuid])      => threads(req, &key);
     (/[email]/[topic])  => notes(req, email, topic);
     });
-    Ok(Response::with((Status::NotFound)))
+
+    render(PageContent::NotFound)
 }
 
 
