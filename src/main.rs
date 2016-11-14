@@ -26,8 +26,9 @@ use iron::typemap::Key;
 use logger::Logger;
 use params::{FromValue};
 use persistent::Read as PRead;
+use postgres::rows::Row;
 use r2d2_postgres::{SslMode, PostgresConnectionManager};
-use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, utf8_percent_encode, percent_decode};
+use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, utf8_percent_encode};
 use uuid::Uuid;
 
 #[macro_use]
@@ -43,6 +44,25 @@ struct PostgresDB;
 impl Key for PostgresDB {
     type Value = PostgresPool;
 }
+
+
+#[derive(Debug, PartialEq, Eq)]
+struct Topic {
+    key: Uuid,
+    topic: String,
+    latest: DateTime<UTC>,
+}
+
+impl Topic {
+    fn from_row(row: Row) -> Topic {
+        Topic {
+            key: row.get("key"),
+            topic: row.get("topic"),
+            latest: DateTime::from_utc(row.get("latest"), UTC),
+        }
+    }
+}
+
 
 #[derive(Debug, PartialEq, Eq)]
 struct Post {
@@ -85,8 +105,8 @@ impl std::fmt::Display for Title {
 #[derive(Debug, PartialEq, Eq)]
 enum PageContent {
     Home { author_post_times: Vec<DateTime<UTC>> },
-    Topics { author: String, topics: Vec<(String, DateTime<UTC>)> },
-    Posts { author: String, topic: String, posts: Vec<Post> },
+    Topics { author: String, topics: Vec<Topic> },
+    Posts { author: String, topic: Topic, posts: Vec<Post> },
     NotFound,
 }
 
@@ -101,12 +121,6 @@ where I: IntoIterator<Item=T>,
         .join(""))
 }
 
-fn link_author(username: &String) -> String {
-    let link = format!("/{}", utf8_percent_encode(&username, PATH_SEGMENT_ENCODE_SET));
-    let title = format!("Notes from {}", &username);
-    tag!(a[href=link][title=title]: username)
-}
-
 fn days_ago(t: &DateTime<UTC>) -> String {
     let now = UTC::now();
     match (*t - now).num_days() {
@@ -118,16 +132,15 @@ fn days_ago(t: &DateTime<UTC>) -> String {
     }
 }
 
-fn link_topic(author: &String, topic: &String) -> String {
-    let link = format!("/{}/{}",
-        utf8_percent_encode(author, PATH_SEGMENT_ENCODE_SET),
-        utf8_percent_encode(topic, PATH_SEGMENT_ENCODE_SET));
-    let title = format!("Notes on {}", topic);
-    tag!(a[href=link][title=title]: topic)
+fn link_topic(topic: &Topic) -> String {
+    let link = format!("/t/{}",
+        utf8_percent_encode(&format!("{}", topic.key), PATH_SEGMENT_ENCODE_SET));
+    let title = format!("Notes on {}", topic.topic);
+    tag!(a[href=link][title=title]: topic.topic)
 }
 
-fn link_topic_latest(author: &String, &(ref topic, latest): &(String, DateTime<UTC>)) -> String {
-    tag!(p: link_topic(author, topic), " ", days_ago(&latest))
+fn link_topic_latest(topic: &Topic) -> String {
+    tag!(p: link_topic(&topic), " ", days_ago(&topic.latest))
 }
 
 fn show_post(post: &Post) -> String {
@@ -159,7 +172,7 @@ fn home_page(author_post_times: Vec<DateTime<UTC>>) -> (Title, Status, String) {
                 tag!(p: "posted ", days_ago(when)))))
 }
 
-fn topics_page(author: String, topics: Vec<(String, DateTime<UTC>)>) -> (Title, Status, String) {
+fn topics_page(author: String, topics: Vec<Topic>) -> (Title, Status, String) {
     if topics.len() > 0 {
         (Title::Add((&author).to_string()), Status::Ok, join!(
             tag!(h1: "Notes by ", &author),
@@ -167,7 +180,7 @@ fn topics_page(author: String, topics: Vec<(String, DateTime<UTC>)>) -> (Title, 
             tag!(p: "So avoid linking to notes, especially on aggregation sites like reddit. If you're not sure, contact ", &author, " first and ask."),
             tag!(main:
                 tag!(h2: "Topics"),
-                ul(topics, |t| link_topic_latest(&author, t)))))
+                ul(topics, link_topic_latest))))
     } else {
         (Title::Nothing, Status::NotFound,
             tag!(main:
@@ -179,26 +192,26 @@ fn topics_page(author: String, topics: Vec<(String, DateTime<UTC>)>) -> (Title, 
     }
 }
 
-fn posts_page(author: String, topic: String, posts: Vec<Post>) -> (Title, Status, String) {
+fn posts_page(author: String, topic: Topic, posts: Vec<Post>) -> (Title, Status, String) {
     if posts.len() > 0 {
-        (Title::Add((&topic).to_string()), Status::Ok, join!(
+        (Title::Add((&topic.topic).to_string()), Status::Ok, join!(
             tag!(p[class="heads-up"]:
                 tag!(strong: "Heads up:"),
                 " write-only is a tiny island in cyberspace where no one visits. It's intended for writing freely, without the pressure of an audience or Internet Points. You can read these notes, but they're not for you. Ask before you share!."),
             tag!(main:
-                tag!(h1: topic),
-                tag!(h2[class="subtitle"]: " by ", link_author(&author)),
+                tag!(h1: topic.topic),
+                tag!(h2[class="subtitle"]: " by ", &author),
                 ul(posts, &show_post))))
     } else {
         let mailto = format!("mailto:note@write-only.space?subject={}",
-            utf8_percent_encode(&topic, PATH_SEGMENT_ENCODE_SET));
+            utf8_percent_encode(&topic.topic, PATH_SEGMENT_ENCODE_SET));
         (Title::Nothing, Status::NotFound,
             tag!(main:
-                tag!(h2: "No notes on ", &topic, " by ", &author),
+                tag!(h2: "No notes on ", &topic.topic, " by ", &author),
                 tag!(p: tag!(strong: "Are you ", &author, "?")),
                 tag!(p: "Post notes here by emailing them to ",
                     tag!(a[href=mailto]: "note@write-only.space"),
-                    " with ", tag!(strong: &topic),  " as the subject line.")))
+                    " with ", tag!(strong: &topic.topic),  " as the subject line.")))
     }
 }
 
@@ -294,42 +307,57 @@ fn threads(req: &mut Request, key: &Uuid) -> IronResult<Response> {
     let topics = conn
         .query("
             SELECT
-                thread,
+                topic.topic as topic,
+                topic.key as key,
                 max(post.timestamp) as latest
-            FROM post, author
-            WHERE post.author = author.email
+            FROM post, topic, author
+            WHERE post.topic = topic.id
+              AND post.author = author.email
               AND author.email = $1
-            GROUP BY thread
+            GROUP BY post.topic, topic.topic, topic.key
             ORDER BY latest DESC
         ", &[&author])
         .unwrap()
         .into_iter()
-        .map(|row| (row.get("thread"), DateTime::from_utc(row.get("latest"), offset::utc::UTC)))
+        .map(Topic::from_row)
         .collect();
 
     render(PageContent::Topics { author: author, topics: topics })
 }
 
-fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
+fn notes(req: &mut Request, topic_key: Uuid) -> IronResult<Response> {
     let conn = req.get::<persistent::Read<PostgresDB>>().unwrap().get().unwrap();
-    let author_email = percent_decode(email.as_bytes())
-        .decode_utf8_lossy()
-        .into_owned();
-    let topic = percent_decode(topic.as_bytes())
-        .decode_utf8_lossy()
-        .into_owned();
+
+    let (author, topic): (String, Topic) = match conn
+        .query("
+            SELECT
+                author.email as author,
+                topic.topic as topic,
+                topic.key as key,
+                topic.timestamp as latest  --nooooooooooo
+            FROM topic, post, author
+            WHERE post.topic = topic.id
+              AND author.email = post.author
+              AND topic.key = $1
+        ", &[&topic_key])
+        .unwrap()
+        .into_iter()
+        .map(|row| (row.get("author"), Topic::from_row(row)))
+        .next() {
+        Some((author, topic)) => (author, topic),
+        None => return Ok(Response::with((Status::NotFound))),
+    };
 
     let posts = conn
         .query("
             SELECT
                 body,
                 post.timestamp
-            FROM post, author
-            WHERE post.author = author.email
-              AND author.email = $1
-              AND thread = $2
+            FROM post, topic
+            WHERE post.topic = topic.id
+              AND topic.key = $1
             ORDER BY post.timestamp DESC
-        ", &[&author_email, &topic])
+        ", &[&topic_key])
         .unwrap()
         .into_iter()
         .map(|row| Post {
@@ -338,7 +366,7 @@ fn notes(req: &mut Request, email: &str, topic: &str) -> IronResult<Response> {
         })
         .collect();
 
-    render(PageContent::Posts { author: author_email, topic: topic, posts: posts })
+    render(PageContent::Posts { author: author, topic: topic, posts: posts })
 }
 
 
@@ -435,11 +463,11 @@ fn get_pool(uri: &str) -> Result<PostgresPool, String> {
 fn router(req: &mut Request) -> IronResult<Response> {
     let path = format!("/{}", req.url.path().join("/"));
     route!(path, {
-    (/)                 => index(req);
-    (/"email")          => receive_email(req);
-    (/"robots.txt")     => Ok(Response::with((Status::Ok, include_str!("robots.txt"))));
-    (/[key: Uuid])      => threads(req, &key);
-    (/[email]/[topic])  => notes(req, email, topic);
+    (/)                  => index(req);
+    (/"email")           => receive_email(req);
+    (/"robots.txt")      => Ok(Response::with((Status::Ok, include_str!("robots.txt"))));
+    (/[key: Uuid])       => threads(req, &key);
+    (/"t"/[topic: Uuid]) => notes(req, topic);
     });
 
     render(PageContent::NotFound)
