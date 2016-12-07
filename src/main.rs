@@ -274,11 +274,11 @@ fn index(req: &mut Request) -> IronResult<Response> {
     let author_post_times = conn
         .query("
             SELECT
-                email,
+                author,
                 max(post.timestamp) as latest
-            FROM post, author
-            WHERE post.author = author.email
-            GROUP BY email
+            FROM post, topic
+            WHERE post.topic = topic.id
+            GROUP BY topic.author
             ORDER BY latest DESC", &[])
         .unwrap()
         .into_iter()
@@ -312,7 +312,7 @@ fn threads(req: &mut Request, key: &Uuid) -> IronResult<Response> {
                 max(post.timestamp) as latest
             FROM post, topic, author
             WHERE post.topic = topic.id
-              AND post.author = author.email
+              AND topic.author = author.email
               AND author.email = $1
             GROUP BY post.topic, topic.topic, topic.key
             ORDER BY latest DESC
@@ -331,13 +331,12 @@ fn notes(req: &mut Request, topic_key: Uuid) -> IronResult<Response> {
     let (author, topic): (String, Topic) = match conn
         .query("
             SELECT
-                author.email as author,
+                topic.author as author,
                 topic.topic as topic,
                 topic.key as key,
                 topic.timestamp as latest  --nooooooooooo
-            FROM topic, post, author
+            FROM topic, post
             WHERE post.topic = topic.id
-              AND author.email = post.author
               AND topic.key = $1
         ", &[&topic_key])
         .unwrap()
@@ -421,11 +420,36 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
             WHERE email = $1)",
         &[&sender]).unwrap();
 
+    // create the topic if it doesn't exist yet
+    conn.execute("
+        INSERT INTO topic (topic, author)
+            SELECT $1, $2
+        WHERE NOT EXISTS (
+            SELECT topic.topic as topic
+            FROM topic
+            WHERE topic.author = $2
+              AND topic.topic = $1)",
+        &[&topic, &sender]).unwrap();
+
+    // grab the topic id for the note
+    let topic_id: Uuid = conn
+        .query("
+            SELECT id
+            FROM topic
+            WHERE topic.topic = $1
+              AND topic.author = $2",
+            &[&topic, &sender])
+        .unwrap()
+        .into_iter()
+        .map(|row| row.get("id"))
+        .next()
+        .unwrap();  // guarded by the previous query (what's a race?..)
+
     // insert the note
     conn.execute("
-        INSERT INTO post (author, thread, body)
-        VALUES ($1, $2, $3)",
-        &[&sender, &topic, &body]).unwrap();
+        INSERT INTO post (topic, body)
+        VALUES ($1, $2)",
+        &[&topic_id, &body]).unwrap();
 
     // if it's a new user, send a welcome email
     if added == 1 {

@@ -12,6 +12,7 @@ pub fn run(conn: db::PostgresConnection) -> Result<(), ()> {
         , include_str!("./migrations/add-author-table.sql")
         , include_str!("./migrations/unlist-and-alias-authors.sql")
         , include_str!("./migrations/unlist-topics.sql")
+        , include_str!("./migrations/author-via-topic.sql")
         ];
     let all_hashes = all_migrations
         .iter()
