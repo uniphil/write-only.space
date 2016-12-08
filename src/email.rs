@@ -4,30 +4,41 @@ use hyper::mime::{Mime, TopLevel, SubLevel};
 use hyper::net::HttpsConnector;
 use hyper_rustls;
 use url::percent_encoding::{PATH_SEGMENT_ENCODE_SET, QUERY_ENCODE_SET, utf8_percent_encode};
+use uuid::Uuid;
 
 
-pub fn welcome(domain: &str, api_key: &str, to: &str, topic: &str, message_id: Option<&str>) {
+pub fn welcome(domain: &str, api_key: &str, to: &str, topic: &str, topic_key: &Uuid, user_key: &Uuid, message_id: Option<&str>) {
     let from = "write-only <note@write-only.space>";
     let html = {
         let title = "Welcome to write-only 🌘";
         let header = tag!(td[style="padding: 1.5em 1em 1em 1em; text-align: center; font-size: 18px"][bgcolor="#000000"]:
             tag!(a[href="http://write-only.space"][style="color: #ffff00; text-decoration:none"]: "write-only☄space"));
-        let post_link = format!("{}/{}/{}",
+        let u_link = format!("{}/{}",
             utf8_percent_encode(domain, PATH_SEGMENT_ENCODE_SET),
-            utf8_percent_encode(to, PATH_SEGMENT_ENCODE_SET),
-            utf8_percent_encode(topic, PATH_SEGMENT_ENCODE_SET));
+            utf8_percent_encode(&user_key.to_string(), PATH_SEGMENT_ENCODE_SET));
+        let thread_link = format!("{}/t/{}",
+            utf8_percent_encode(domain, PATH_SEGMENT_ENCODE_SET),
+            utf8_percent_encode(&topic_key.to_string(), PATH_SEGMENT_ENCODE_SET));
         let main = tag!(td[bgcolor="#003344"][style="color: #ffffff; padding: 1em 1em 1em 1em; font-size: 18px"]:
             tag!(b[style="font-size: 24px; padding: 1em 0 1em 0;"]: title),
             tag!(p:
-                "You just posted your first note about ",
-                tag!(a[href=post_link][style="font-weight: bold; color: #ffff00; text-decoration:none"]: topic),
+                "You just posted ",
+                tag!(a[href=thread_link][style="font-weight: bold; color: #ffff00; text-decoration:none"]:
+                    "your first note"),
                 " – awesome!"),
             tag!(p:
-                "We group notes by the email's subject, so you can post more about ",
-                tag!(i: topic),
-                " by simply replying to this email."),
+                "Everything you post to write-only is ",
+                tag!(em: "unlisted"),
+                ", which means only people with the link can find it. Here is the special link that shows everything posted from your email address:"),
+            tag!(p:
+                tag!(a[href=u_link][style="font-weight: bold; color: ffff00; text-decoration:none"]:
+                    u_link)),
+            tag!(p:
+                "Your notes are grouped by the email's subject line, so you can post more about ",
+                tag!(b: topic),
+                " by simply replying to this email, or sending new emails with the same subject."),
             tag!(p: "That's it!"),
-            tag!(p: "✎ Happy writing"));
+            tag!(p: "Happy writing ✎"));
         join![
             "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">",
             tag!(html[xmlns="http://www.w3.org/1999/xhtml"]:
@@ -48,7 +59,7 @@ pub fn welcome(domain: &str, api_key: &str, to: &str, topic: &str, message_id: O
         utf8_percent_encode(&html, QUERY_ENCODE_SET));
     if let Some(mid) = message_id {
         payload.push_str(&format!("&h:In-Reply-To={id}&h:References={id}",
-            id = utf8_percent_encode(&mid, QUERY_ENCODE_SET)));
+            id = mid));  // assume that the header needs no encoding
     }
     let response = Client::with_connector(HttpsConnector::new(hyper_rustls::TlsClient::new()))
         .post(&format!("https://api.mailgun.net/v3/{}/messages", domain))

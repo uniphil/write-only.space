@@ -432,16 +432,16 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
         &[&topic, &sender]).unwrap();
 
     // grab the topic id for the note
-    let topic_id: Uuid = conn
+    let (topic_id, topic_key): (Uuid, Uuid) = conn
         .query("
-            SELECT id
+            SELECT id, key
             FROM topic
             WHERE topic.topic = $1
               AND topic.author = $2",
             &[&topic, &sender])
         .unwrap()
         .into_iter()
-        .map(|row| row.get("id"))
+        .map(|row| (row.get("id"), row.get("key")))
         .next()
         .unwrap();  // guarded by the previous query (what's a race?..)
 
@@ -453,7 +453,15 @@ fn receive_email(req: &mut Request) -> IronResult<Response> {
 
     // if it's a new user, send a welcome email
     if added == 1 {
-        email::welcome(&MAILGUN_DOMAIN, &MAILGUN_KEY, &sender, &topic, message_id);
+        // grab the user key for their special link
+        let user_key: Uuid = conn
+            .query("SELECT key FROM author WHERE email = $1", &[&sender])
+            .unwrap()
+            .into_iter()
+            .map(|row| row.get("key"))
+            .next()
+            .unwrap();  // guarded by the user check / creation
+        email::welcome(&MAILGUN_DOMAIN, &MAILGUN_KEY, &sender, &topic, &topic_key, &user_key, message_id);
     }
 
     let resp = Response::with(
