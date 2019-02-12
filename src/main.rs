@@ -169,7 +169,8 @@ fn home_page(author_post_times: Vec<DateTime<UTC>>) -> (Title, Status, String) {
                 "they won't show up in search engine results, and you need a special link to see them. Anyone with the link can see the the notes."),
             tag!(h2: "Recent activity:"),
             ul(author_post_times, |when|
-                tag!(p: "posted ", days_ago(when)))))
+                tag!(p: "posted ", days_ago(when))),
+            tag!(img[src="https://timekeep-server.herokuapp.com/count.gif"][style="position:absolute;left:-9999em"][alt="visitor counter"]["aria-hidden"="true"])))
 }
 
 fn topics_page(author: String, topics: Vec<Topic>) -> (Title, Status, String) {
@@ -220,7 +221,8 @@ fn not_found() -> (Title, Status, String) {
     , Status::NotFound
     , tag!(main:
         tag!(h1: "Nothing here"),
-        tag!(p: "nothing at all..."))
+        tag!(p: "nothing at all..."),
+        tag!(img[src="https://timekeep-server.herokuapp.com/count.gif"][style="position:absolute;left:-9999em"][alt="visitor counter"]["aria-hidden"="true"]))
     )
 }
 
