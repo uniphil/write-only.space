@@ -170,7 +170,7 @@ fn home_page(author_post_times: Vec<DateTime<UTC>>) -> (Title, Status, String) {
             tag!(h2: "Recent activity:"),
             ul(author_post_times, |when|
                 tag!(p: "posted ", days_ago(when))),
-            tag!(img[src="https://timekeep-server.herokuapp.com/count.gif"][style="position:absolute;left:-9999em"][alt="visitor counter"]["aria-hidden"="true"])))
+            tag!(img[src="https://counter.cv2.ca/count.gif"][style="position:absolute;left:-9999em"][alt="visitor counter"]["aria-hidden"="true"])))
 }
 
 fn topics_page(author: String, topics: Vec<Topic>) -> (Title, Status, String) {
